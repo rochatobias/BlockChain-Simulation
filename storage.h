@@ -18,4 +18,7 @@ void exibirEstatisticas(); // Exibe estatísticas
 void imprimirBloco(BlocoMinerado *bloco);
 void imprimirHash(unsigned char *hash, int tamanho);
 
+// apagar depois de testes
+void relatorioColisoes();
+
 #endif 

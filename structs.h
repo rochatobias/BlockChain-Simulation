@@ -38,4 +38,14 @@ typedef struct NoBucket {
     struct NoBucket *proximo;
 } NoBucket;
 
+// Estatísticas gerais do sistema para DEBUG
+typedef struct {
+    unsigned int saldos[256];           
+    unsigned char enderecoMaisRico;     
+    unsigned int saldoMaisRico;         
+    unsigned int maxTransacoes;         
+    unsigned int blocoMaxTransacoes;    
+    unsigned int totalBlocos;           
+} Estatisticas;
+
 #endif 
