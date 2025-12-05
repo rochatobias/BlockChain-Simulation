@@ -2,7 +2,6 @@
 #include <string.h> 
 #include "mtwister.h"
 
-// Definições conforme o PDF
 #define TOTAL_ENDERECOS 256
 #define TAMANHO_DATA 184
 #define RECOMPENSA_MINERACAO 50
@@ -170,4 +169,5 @@ void atualizarCarteira(unsigned int numeroDoBloco, unsigned char dataBlock[], un
         
         index += 3;
     }
+
 }
