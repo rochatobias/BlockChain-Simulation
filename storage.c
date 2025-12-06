@@ -252,12 +252,12 @@ void imprimirBlocoCompleto(BlocoMinerado *b) // Imprime bloco formatado com meta
     printf("Minerador:     %u (Endereço)\n", b->bloco.data[MINERADOR_OFFSET]); 
     
     printf("Hash:          ");
-    for(int i=0; i<SHA256_DIGEST_LENGTH; i++) 
+    for(int i=0; i<SHA256_LEN; i++) 
         printf("%02x", b->hash[i]);
     printf("\n");
 
     printf("Hash Anterior: ");
-    for(int i=0; i<SHA256_DIGEST_LENGTH; i++) 
+    for(int i=0; i<SHA256_LEN; i++) 
         printf("%02x", b->bloco.hashAnterior[i]);
     printf("\n");
 

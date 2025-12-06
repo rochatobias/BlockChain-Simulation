@@ -5,7 +5,7 @@
 #include <openssl/sha.h>
 
 #define DATA_SIZE 184
-#define SHA256_DIGEST_LENGTH 32
+#define SHA256_LEN 32
 
 /**
  * Estrutura de um bloco ANTES de ser minerado
@@ -15,7 +15,7 @@ typedef struct {
     unsigned int numero;                           // Número sequencial do bloco (1, 2, 3...)
     unsigned int nonce;                            // Número usado para variar o hash na mineração
     unsigned char data[DATA_SIZE];                 // 184 bytes: 183 bytes de transações + 1 byte (minerador)
-    unsigned char hashAnterior[SHA256_DIGEST_LENGTH]; // Hash do bloco anterior (encadeamento)
+    unsigned char hashAnterior[SHA256_LEN]; // Hash do bloco anterior (encadeamento)
 } BlocoNaoMinerado;
 
 /**
@@ -23,7 +23,7 @@ typedef struct {
  * Inclui o hash calculado que satisfez a dificuldade
  */
 typedef struct {
-    unsigned char hash[SHA256_DIGEST_LENGTH];      // Hash SHA-256 resultante da mineração
+    unsigned char hash[SHA256_LEN];      // Hash SHA-256 resultante da mineração
     BlocoNaoMinerado bloco;                        // Dados do bloco que foram hasheados
 } BlocoMinerado;
 
