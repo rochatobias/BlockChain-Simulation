@@ -71,7 +71,3 @@ BlocoMinerado criarProxBloco(BlocoMinerado ant, unsigned int num){
 
     return final;
 }
-
-int main() {
-    return 0;
-}
