@@ -45,9 +45,6 @@ BlocoMinerado criarBlocoGenesis(){
 
     bg.numero = 1; // numerando o  bloco
 
-    const char *msg = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks";
-    memcpy(bg.data, msg, strlen(msg));
-
     BlocoMinerado blocoFinal;
     blocoFinal.bloco = bg;
 
