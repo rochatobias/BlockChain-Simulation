@@ -61,7 +61,7 @@ BlocoMinerado criarProxBloco(BlocoMinerado ant, unsigned int num){
 
     atualizarHashAnt(&novo, ant.hash);
 
-    const char *msg = "Transacoes do bloco";\
+    const char *msg = "Transacoes do bloco";
     memcpy(novo.data, msg, strlen(msg));
 
     BlocoMinerado final;
