@@ -1,72 +1,107 @@
+/*
+ * SISTEMA DE ARMAZENAMENTO DA BLOCKCHAIN
+ * 
+ * Sistema híbrido: Disco (persistência) + RAM (índices rápidos)
+ * - Hash Table de Nonces: busca O(1)
+ * - Índice de Mineradores: listagem cronológica O(1)
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <openssl/sha.h>
 #include "storage.h"
 #include "structs.h"
 
-#define HASH_BITS 19 // Número de bits para tabela hash
-#define TAM_HASH (1 << HASH_BITS) // TAM_HASH: Potência de 2^14 = 16384 e 2^19 = 524288
-#define SHIFT_AMOUNT (32 - HASH_BITS) // Para espalhar bits
+// CONSTANTES DE CONFIGURAÇÃO
+
+// I/O e performance
+#define READ_LOTE 256
+#define BUFFER_SIZE 16
+
+// Hash table
+#define HASH_BITS 19
+#define TAM_HASH (1 << HASH_BITS)
+#define SHIFT_AMOUNT (32 - HASH_BITS)
 #define KNUTH_CONST 2654435761u
 
-// Tabela hash para nonces testados
-NoHash *tabelaNonce[TAM_HASH];  
-// Ponteiros para os inícios das listas de blocos minerados por cada minerador
-NoMinerador *indiceMinerador[256]; 
-// Ponteiro para o início da lista da quantidade de transações por bloco minerado
-NoBucket *bucketTransacoes[62]; 
-// static = variável global visível apenas neste arquivo
-FILE *arquivoAtual = NULL;
-// Buffer de blocos antes de gravar no disco
-BlocoMinerado buffer[16];
-// Estrutura para estatísticas
-Estatisticas stats;
-int contadorBuffer = 0;
+// Estrutura de blocos
+#define MINERADOR_OFFSET 183
+#define TRANSACAO_SIZE 3
+#define MAX_TRANSACOES 61
+#define NUM_BUCKETS (MAX_TRANSACOES + 1)
+#define NUM_ENDERECOS 256
 
-// Função Hash com constante de Knuth para Nonce
+// ESTRUTURAS GLOBAIS (static = visível apenas neste arquivo)
+
+// Índice 1: Hash Table para busca rápida por nonce
+static NoHash *tabelaNonce[TAM_HASH];
+
+// Índice 2: Listas de blocos por minerador (ordem cronológica)
+static NoMinerador *indiceMinerador[NUM_ENDERECOS]; 
+static NoMinerador *fimMinerador[NUM_ENDERECOS];
+
+// Arquivo de disco e buffer de escrita
+static FILE *arquivoAtual = NULL;
+static BlocoMinerado buffer[BUFFER_SIZE];
+static int contadorBuffer = 0;
+
+// Estatísticas do sistema
+static Estatisticas stats;
+
+// FUNÇÕES AUXILIARES - HASH E ÍNDICES
+
+// Hash multiplicativo de Knuth - distribuição uniforme
 static unsigned int hashFunction(unsigned int nonce) 
 {
     unsigned int hash = nonce * KNUTH_CONST;
-    return hash >> SHIFT_AMOUNT; // Retorna os bits mais significativos
+    return hash >> SHIFT_AMOUNT;
 }
 
-// Insere no índice de Nonce (RAM)
+// Insere nonce no índice (início da lista para O(1))
 static void inserirNonce(unsigned int nonce, unsigned int idBloco) 
 {
     unsigned int pos = hashFunction(nonce);
-    NoHash *novo = (NoHash*) malloc(sizeof(NoHash));
+    NoHash *novo = verifica_malloc(sizeof(NoHash), "inserirNonce");
+
     novo->nonce = nonce;
     novo->idBloco = idBloco;
-    novo->prox = tabelaNonce[pos]; // Insere no início
+    novo->prox = tabelaNonce[pos];
     tabelaNonce[pos] = novo;
 }
 
-// Insere no índice de Minerador (RAM)
+// Insere bloco no índice de minerador (fim da lista para manter ordem)
 static void inserirMinerador(unsigned char endereco, unsigned int idBloco) 
 {
-    NoMinerador *novo = (NoMinerador*) malloc(sizeof(NoMinerador));
+    NoMinerador *novo = verifica_malloc(sizeof(NoMinerador), "inserirMinerador");
     novo->idBloco = idBloco;
-    novo->prox = indiceMinerador[endereco]; // Insere no início 
-    indiceMinerador[endereco] = novo;
+    novo->prox = NULL;
+
+    if (indiceMinerador[endereco] == NULL)
+        indiceMinerador[endereco] = novo;
+    else 
+        fimMinerador[endereco]->prox = novo;
+    
+    fimMinerador[endereco] = novo;
 }
 
-// Esvazia o buffer para o disco 
-static void flushBuffer() {
+// FUNÇÕES AUXILIARES - BUFFER E DISCO
+
+static void flushBuffer() // Grava buffer no disco (reduz syscalls escrevendo 16 blocos de uma vez)
+{
     if (contadorBuffer > 0 && arquivoAtual != NULL) 
     {
-        // Vai para o final do arquivo para garantir escrita correta
-        fseek(arquivoAtual, 0, SEEK_END); 
+        fseek(arquivoAtual, 0, SEEK_END);
         fwrite(buffer, sizeof(BlocoMinerado), contadorBuffer, arquivoAtual);
+        fflush(arquivoAtual);
         contadorBuffer = 0;
-        // fflush garante que o SO escreva fisicamente no disco agora
-        fflush(arquivoAtual); 
     }
 }
 
-// Limpa memória (inicialização ou finalização)
-static void resetarIndices() 
+// FUNÇÕES AUXILIARES - LIMPEZA DE MEMÓRIA
+
+static void resetarIndices() // Libera toda memória alocada (hash table + índice de mineradores)
 {
-    // Limpa Hash Table
+    // Libera hash table
     for (int i = 0; i < TAM_HASH; i++) 
     {
         NoHash *atual = tabelaNonce[i];
@@ -78,8 +113,9 @@ static void resetarIndices()
         }
         tabelaNonce[i] = NULL;
     }
-    // Limpa Índice Mineradores
-    for (int i = 0; i < 256; i++) 
+    
+    // Libera índice de mineradores
+    for (int i = 0; i < NUM_ENDERECOS; i++) 
     {
         NoMinerador *atual = indiceMinerador[i];
         while (atual != NULL) 
@@ -89,41 +125,83 @@ static void resetarIndices()
             free(temp);
         }
         indiceMinerador[i] = NULL;
+        fimMinerador[i] = NULL;
     }
+    
     stats.totalBlocos = 0;
     contadorBuffer = 0;
 }
 
-// Reconstrói índices lendo o arquivo existente 
-static void reconstruirIndicesDoDisco() {
-    BlocoMinerado blocoTemp;
+// FUNÇÕES AUXILIARES - RECONSTRUÇÃO
+
+static void reconstruirIndicesDoDisco()  // Reconstrói índices lendo blocos do disco (restaura estado após reabrir arquivo) 
+{
+    BlocoMinerado lote[READ_LOTE];
+    size_t blocosLidos;
     unsigned int idCalculado = 1;
 
-    rewind(arquivoAtual); // Volta ao início do arquivo
+    rewind(arquivoAtual);
 
-    // Leitura sequencial rápida para povoar a RAM
-    while(fread(&blocoTemp, sizeof(BlocoMinerado), 1, arquivoAtual) == 1) {
-        // Recupera o minerador (último byte do data)
-        unsigned char minerador = blocoTemp.bloco.data[183];
-        
-        // Reconstrói índices
-        inserirNonce(blocoTemp.bloco.nonce, idCalculado);
-        inserirMinerador(minerador, idCalculado);
-        
-        stats.totalBlocos = idCalculado;
-        idCalculado++;
+    // Lê blocos em lotes de 256 para otimizar I/O
+    while ((blocosLidos = fread(lote, sizeof(BlocoMinerado), READ_LOTE, arquivoAtual)) > 0) 
+    {
+        for (size_t i = 0; i < blocosLidos; i++)
+        {
+            unsigned char minerador = lote[i].bloco.data[MINERADOR_OFFSET];
+
+            inserirNonce(lote[i].bloco.nonce, idCalculado);
+            inserirMinerador(minerador, idCalculado);
+            
+            stats.totalBlocos = idCalculado;
+            idCalculado++;
+        }
     }
     printf("Sistema restaurado. %u blocos indexados na RAM.\n", stats.totalBlocos);
 }
 
-void inicializarStorage(const char *nomeArquivo) 
+// FUNÇÕES AUXILIARES - ANÁLISE DE BLOCOS
+
+static int contarTransacoes(BlocoMinerado *bloco) // Conta transações em um bloco (0-61 possíveis)
 {
-    // Tenta abrir para leitura e escrita binária
+    if (bloco->bloco.numero == 1) return 0; // Bloco Gênesis
+
+    int contagem = 0;
+    for (int i = 0; i < MINERADOR_OFFSET; i += TRANSACAO_SIZE) 
+    {
+        unsigned char origem = bloco->bloco.data[i];
+        unsigned char destino = bloco->bloco.data[i+1];
+        unsigned char valor = bloco->bloco.data[i+2];
+
+        if (valor > 0) 
+            contagem++;
+        else if (origem == 0 && destino == 0) 
+            break;
+    }
+    return contagem;
+}
+
+
+// FUNÇÕES AUXILIARES PRIVADAS - LEITURA DE BLOCOS
+
+void *verifica_malloc(size_t tamanho, const char *contexto) // Wrapper seguro para malloc - termina programa se falhar
+{
+    void *ptr = malloc(tamanho);
+    if (ptr == NULL) 
+    {
+        fprintf(stderr, "ERRO FATAL: malloc falhou (%zu bytes em %s)\n", tamanho, contexto);
+        exit(EXIT_FAILURE);
+    }
+    return ptr;
+}
+
+// FUNÇÕES PÚBLICAS - INICIALIZAÇÃO E FINALIZAÇÃO
+
+void inicializarStorage(const char *nomeArquivo) // Inicializa sistema (abre/cria arquivo e reconstrói índices)
+{
     arquivoAtual = fopen(nomeArquivo, "rb+");
 
     if (arquivoAtual == NULL) 
     {
-        // Se não existe, cria novo
         arquivoAtual = fopen(nomeArquivo, "wb+");
         if (!arquivoAtual) 
         {
@@ -134,162 +212,286 @@ void inicializarStorage(const char *nomeArquivo)
     } 
     else 
     {
-        // Se existe, carrega para RAM [cite: 38]
         resetarIndices();
         reconstruirIndicesDoDisco();
     }
 }
 
-void adicionarBloco(BlocoMinerado *bloco) 
+void adicionarBloco(BlocoMinerado *bloco) // Adiciona bloco ao sistema (atualiza índices e buffer)
 {
-    // 1. Atualiza índices em RAM (Imediato)
-    stats.totalBlocos++; // O próximo ID
-    unsigned char minerador = bloco->bloco.data[183];
+    stats.totalBlocos++;
+    unsigned char minerador = bloco->bloco.data[MINERADOR_OFFSET];
     
     inserirNonce(bloco->bloco.nonce, stats.totalBlocos);
     inserirMinerador(minerador, stats.totalBlocos);
 
-    // 2. Adiciona ao Buffer
     buffer[contadorBuffer] = *bloco;
     contadorBuffer++;
 
-    // 3. Se encheu o lote de 16, salva no disco 
-    if (contadorBuffer == 16) 
-    {
+    if (contadorBuffer == BUFFER_SIZE) 
         flushBuffer();
-    }
 }
 
-void finalizarStorage() 
+void finalizarStorage() // Finaliza sistema (salva buffer, fecha arquivo, libera RAM)
 {
-    // Salva o que sobrou no buffer antes de sair
     flushBuffer();
-    
+
     if (arquivoAtual) fclose(arquivoAtual);
-    resetarIndices(); // Libera RAM
+        resetarIndices();
 }
 
-// Busca O(1) usando o índice Hash + Acesso direto ao Disco
-int buscarNonce(unsigned int nonce, BlocoMinerado *saida) 
+// FUNÇÕES PÚBLICAS - VISUALIZAÇÃO
+
+void imprimirBlocoCompleto(BlocoMinerado *b) // Imprime bloco formatado com metadados, hashes e transações
+{
+    printf("==================================================\n");
+    printf("BLOCO #%u\n", b->bloco.numero);
+    printf("==================================================\n");
+    
+    printf("Nonce:         %u\n", b->bloco.nonce);
+    printf("Minerador:     %u (Endereço)\n", b->bloco.data[MINERADOR_OFFSET]); 
+    
+    printf("Hash:          ");
+    for(int i=0; i<SHA256_DIGEST_LENGTH; i++) 
+        printf("%02x", b->hash[i]);
+    printf("\n");
+
+    printf("Hash Anterior: ");
+    for(int i=0; i<SHA256_DIGEST_LENGTH; i++) 
+        printf("%02x", b->bloco.hashAnterior[i]);
+    printf("\n");
+
+    printf("--------------------------------------------------\n");
+    printf("TRANSAÇÕES (Interpretadas do vetor data):\n");
+    
+    if (b->bloco.numero == 1)
+    {
+        printf("  [Dados]: The Times 03/Jan/2009 Chancellor on brink...\n");
+    }
+    else 
+    {
+        int qtd = 0;
+        for (int i = 0; i < MINERADOR_OFFSET; i += TRANSACAO_SIZE) 
+        {
+            unsigned char origem  = b->bloco.data[i];
+            unsigned char destino = b->bloco.data[i+1];
+            unsigned char valor   = b->bloco.data[i+2];
+
+            if (origem != 0 || destino != 0 || valor != 0) 
+            {
+                printf("  Tx %d: Origem %3u -> Destino %3u | Valor: %3u BTC\n", 
+                       qtd+1, origem, destino, valor);
+                qtd++;
+            }
+        }
+        
+        if (qtd == 0) 
+            printf("  (Nenhuma transação neste bloco)\n");
+        
+        printf("Total Transações: %d\n", qtd);
+    }
+    printf("==================================================\n");
+}
+
+// FUNÇÕES PÚBLICAS - BUSCA E ACESSO
+
+static int lerBlocoPorId(unsigned int id, BlocoMinerado *saida) // Lê bloco por ID (verifica buffer E disco)
+{
+    if (id < 1 || id > stats.totalBlocos) return 0;
+
+    unsigned int blocosPersistidos = stats.totalBlocos - contadorBuffer;
+
+    // Bloco no buffer (ainda não gravado)
+    if (id > blocosPersistidos) 
+    {
+        unsigned int idx = id - blocosPersistidos - 1;
+        if (idx < (unsigned int)contadorBuffer) 
+        {
+            *saida = buffer[idx];
+            return 1;
+        }
+        return 0;
+    }
+
+    // Bloco no disco - lê por offset
+    long offset = (long)(id - 1) * sizeof(BlocoMinerado);
+
+    if (arquivoAtual == NULL) 
+        return 0;
+    if (fseek(arquivoAtual, offset, SEEK_SET) != 0) 
+        return 0;
+    if (fread(saida, sizeof(BlocoMinerado), 1, arquivoAtual) != 1) 
+        return 0;
+    return 1;
+}
+
+int buscarNonce(unsigned int nonce, BlocoMinerado *saida) // Busca bloco pelo nonce usando hash table
 {
     unsigned int pos = hashFunction(nonce);
     NoHash *atual = tabelaNonce[pos];
 
-    // 1. Busca na RAM (Hash Table)
     while (atual != NULL) 
     {
         if (atual->nonce == nonce) 
         {
-            // ACHOU! Agora vamos buscar o corpo do bloco no disco.
-            
-            // Cálculo do Offset: (ID - 1) * Tamanho do Bloco
-            long offset = (long)(atual->idBloco - 1) * sizeof(BlocoMinerado);
-            
-            fseek(arquivoAtual, offset, SEEK_SET); // Pula direto para o bloco
-            fread(saida, sizeof(BlocoMinerado), 1, arquivoAtual);
-            
-            return 1; // Encontrado
+            if (lerBlocoPorId(atual->idBloco, saida))
+                return 1;
+            return 0;
         }
         atual = atual->prox;
     }
-    return 0; // Não encontrado
+    return 0;
 }
 
-// Lista blocos de um minerador usando índice
-void listarBlocosMinerador(unsigned char endereco) 
+void listarBlocosMinerador(unsigned char endereco, int n) // Lista blocos de um minerador em ordem cronológica
 {
     NoMinerador *atual = indiceMinerador[endereco];
-    BlocoMinerado temp;
-
-    printf("--- Blocos do Minerador %d ---\n", endereco);
     
-    while (atual != NULL) 
+    if (atual == NULL) 
     {
-        // Pula no disco para pegar o bloco
-        long offset = (long)(atual->idBloco - 1) * sizeof(BlocoMinerado);
-        fseek(arquivoAtual, offset, SEEK_SET);
-        fread(&temp, sizeof(BlocoMinerado), 1, arquivoAtual);
+        printf("Nenhum bloco encontrado para o minerador %d.\n", endereco);
+        return;
+    }
 
-        printf("Bloco %u | Nonce: %u\n", temp.bloco.numero, temp.bloco.nonce);
-        
+    printf("--- Primeiros %d Blocos do Minerador %d ---\n", n, endereco);
+    
+    int contagem = 0;
+    while (atual != NULL && contagem < n) 
+    {
+        BlocoMinerado temp;
+        if (!lerBlocoPorId(atual->idBloco, &temp))
+        {
+            printf("Erro ao ler bloco %u\n", atual->idBloco);
+            return;
+        }
+
+        imprimirBlocoCompleto(&temp);
+        contagem++;
         atual = atual->prox;
     }
 }
 
-// Relatório dos N primeiros blocos ordenados por qtd transações 
-// Le N blocos e usa Bucket Sort (pois transações são 0-61)
-void relatorioTransacoes(unsigned int n) 
+void imprimirBlocoPorNumero(unsigned int numero)  // Imprime bloco por número (wrapper de lerBlocoPorId + imprimirBlocoCompleto)
 {
-    if (n > stats.totalBlocos) n = stats.totalBlocos;
-    if (n == 0) return;
-
-    // Vetor de listas para Bucket Sort (transações variam de 0 a 61)
-    // bucket[k] guardará os blocos que tem K transações
-    typedef struct NoBucket 
+    if (numero < 1 || numero > stats.totalBlocos) 
     {
-        unsigned int idBloco;
-        unsigned int nTransacoes;
-        struct NoBucket *prox;
-    } NoBucket;
+        printf("Erro: Bloco %u nao existe. (Total: %u)\n", numero, stats.totalBlocos);
+        return;
+    }
     
-    NoBucket* buckets[62]; 
-    for(int i=0; i<62; i++) buckets[i] = NULL;
-
-    // Ler N blocos do disco sequencialmente
-    rewind(arquivoAtual);
     BlocoMinerado temp;
+    if (lerBlocoPorId(numero, &temp)) 
+        imprimirBlocoCompleto(&temp);
+    else 
+        printf("Erro de leitura.\n");
+}
+
+// FUNÇÕES PÚBLICAS - RELATÓRIOS
+
+static BlocoMinerado* carregarBlocos(unsigned int n) // Carrega N blocos do disco/buffer para array
+{
+    BlocoMinerado* blocos = verifica_malloc(n * sizeof(BlocoMinerado), "relatorio_blocos");
     
     for (unsigned int i = 0; i < n; i++) 
     {
-        fread(&temp, sizeof(BlocoMinerado), 1, arquivoAtual);
-        
-        // Conta transações (lógica simplificada: contar não-zeros no data)
-        // Implementar a contagem correta baseada na sua lógica de transação
-        int qtdTransacoes = 0; 
-        // ... lógica de contagem aqui ...
-        // Supondo qtdTransacoes calculada:
-        
-        // Insere no bucket correspondente
-        if (qtdTransacoes > 61) qtdTransacoes = 61; // Segurança
-        
-        NoBucket *novo = (NoBucket*)malloc(sizeof(NoBucket));
-        novo->idBloco = temp.bloco.numero;
-        novo->nTransacoes = qtdTransacoes;
-        novo->prox = buckets[qtdTransacoes];
-        buckets[qtdTransacoes] = novo;
-    }
-
-    // Imprimir em ordem crescente (0 a 61)
-    printf("--- Relatorio (Ordenado por Transacoes) ---\n");
-    for (int i = 0; i < 62; i++) 
-    {
-        NoBucket *atual = buckets[i];
-        while(atual != NULL) 
+        if (!lerBlocoPorId(i + 1, &blocos[i])) 
         {
-            // Imprime o resumo:
-            printf("Bloco %u: %u transacoes\n", atual->idBloco, atual->nTransacoes);
-            
-            // Limpeza
-            NoBucket *lixo = atual;
-            atual = atual->prox;
-            free(lixo);
+            fprintf(stderr, "Erro ao ler bloco %u\n", i + 1);
+            free(blocos);
+            return NULL;
         }
+    }
+    return blocos;
+}
+
+static void organizarBuckets(BlocoMinerado *blocos, unsigned int n, int *next, int *buckets) // Organiza blocos em buckets por quantidade de transações (bucket sort)
+{
+    if (blocos == NULL || next == NULL || buckets == NULL || n == 0) 
+    {
+        fprintf(stderr, "Erro: parâmetros inválidos em organizarBuckets\n");
+        return;
+    }
+    // Inicializa buckets vazios
+    for (int i = 0; i < NUM_BUCKETS; i++) 
+        buckets[i] = -1;
+    
+    // Insere blocos nos buckets (de trás pra frente para manter ordem)
+    for (int i = (int)n - 1; i >= 0; i--) 
+    {
+        int qtd = contarTransacoes(&blocos[i]);
+        if (qtd > MAX_TRANSACOES) qtd = MAX_TRANSACOES;
+        
+        next[i] = buckets[qtd];
+        buckets[qtd] = i;
     }
 }
 
-void exibirEstatisticas() 
+static void imprimirRelatorioBuckets(BlocoMinerado *blocos, unsigned int n, int *next, int *buckets) // Imprime relatório de blocos ordenados por transações
+{
+    printf("--- Relatorio (Ordenado por Transacoes) ---\n");
+    printf("Total analisado: %u blocos\n\n", n);
+    
+    unsigned int totalImpresso = 0;
+    
+    for (int trans = 0; trans < NUM_BUCKETS; trans++) 
+    {
+        if (buckets[trans] == -1) continue;
+        
+        printf("\n=== Blocos com %d transacao(oes) ===\n", trans);
+        
+        for (int idx = buckets[trans]; idx != -1; idx = next[idx]) 
+        {
+            imprimirBlocoCompleto(&blocos[idx]);
+            totalImpresso++;
+        }
+    }
+    
+    printf("\n--- Fim do Relatorio ---\n");
+    printf("Blocos impressos: %u\n", totalImpresso);
+}
+
+void relatorioTransacoes(unsigned int n) // Gera relatório de blocos ordenados por quantidade de transações
+{
+    if (n > stats.totalBlocos) n = stats.totalBlocos;
+    if (n == 0) return;
+    
+    // Carrega blocos do disco/buffer
+    BlocoMinerado* blocos = carregarBlocos(n);
+    if (blocos == NULL) return;
+    
+    // Prepara estruturas para bucket sort
+    int *next = verifica_malloc(n * sizeof(int), "relatorio_next");
+    int buckets[NUM_BUCKETS];
+    
+    // Organiza blocos em buckets
+    organizarBuckets(blocos, n, next, buckets);
+    
+    // Imprime relatório ordenado
+    imprimirRelatorioBuckets(blocos, n, next, buckets);
+    
+    // Limpa
+    free(next);
+    free(blocos);
+}
+
+void exibirEstatisticas() // Exibe estatísticas gerais do sistema
 {
     printf("Total de Blocos Minerados: %u\n", stats.totalBlocos);
     printf("## Riqueza e Saldo\n");
-    printf("* Endereço com Maior Saldo: %u (Endereço é o índice do vetor saldos)\n", stats.enderecoMaisRico);
+    printf("* Endereço com Maior Saldo: %u\n", stats.enderecoMaisRico);
     printf("* Saldo Máximo Encontrado: %u bitcoins\n", stats.saldoMaisRico);
     printf("## Transações por Bloco\n");
-    printf("* Máximo de Transações em um Bloco: %u transações\n", stats.maxTransacoes);
-    printf("* Bloco com o Máximo de Transações: %u\n", stats.blocoMaxTransacoes);
+    printf("* Máximo de Transações em um Bloco: %u\n", stats.maxTransacoes);
+    printf("* Bloco com Máximo de Transações: %u\n", stats.blocoMaxTransacoes);
 }
 
-/////// FUNCAO DE TESTE
-void relatorioColisoes() {
+// ============================================================
+// FUNÇÕES DE DEBUG
+// ============================================================
+
+// Analisa distribuição da hash table (colisões, fator de carga, etc)
+void relatorioColisoes() 
+{
     printf("\n=== DIAGNÓSTICO DE COLISÕES (HASH TABLE) ===\n");
     printf("Tamanho da Tabela: %d slots\n", TAM_HASH);
     printf("Total de Itens Inseridos: %u\n", stats.totalBlocos);
@@ -297,43 +499,45 @@ void relatorioColisoes() {
     unsigned int slotsVazios = 0;
     unsigned int maiorLista = 0;
     unsigned int somaTamanhos = 0;
-    
-    // Histograma para ver a distribuição
-    // [0] = vazios, [1] = 1 item, ... [19] = 19 itens, [20] = 20 ou mais
-    unsigned int histograma[21] = {0}; 
+    unsigned int histograma[21] = {0};
 
-    for (int i = 0; i < TAM_HASH; i++) {
+    for (int i = 0; i < TAM_HASH; i++) 
+    {
         unsigned int contador = 0;
         NoHash *atual = tabelaNonce[i];
         
-        // Conta quantos itens tem nesta lista encadeada (profundidade)
-        while (atual != NULL) {
+        while (atual != NULL) 
+        {
             contador++;
             atual = atual->prox;
         }
 
         somaTamanhos += contador;
-        
         if (contador == 0) slotsVazios++;
         if (contador > maiorLista) maiorLista = contador;
 
-        // Preenche histograma
-        if (contador >= 20) histograma[20]++;
-        else histograma[contador]++;
+        if (contador >= 20) 
+            histograma[20]++;
+        else 
+            histograma[contador]++;
     }
 
     double media = (double)somaTamanhos / (TAM_HASH - slotsVazios);
     double fatorCarga = (double)stats.totalBlocos / TAM_HASH;
 
-    printf("Slots Vazios: %u (%.2f%%)\n", slotsVazios, (slotsVazios * 100.0 / TAM_HASH));
-    printf("Fator de Carga (Ideal): %.2f itens por slot\n", fatorCarga);
-    printf("Média Real (em slots ocupados): %.2f itens por slot\n", media);
-    printf("PIOR CASO (Maior Lista): %u itens (Busca mais lenta)\n", maiorLista);
+    printf("Slots Vazios: %u (%.2f%%)\n", 
+           slotsVazios, (slotsVazios * 100.0 / TAM_HASH));
+    printf("Fator de Carga: %.2f itens/slot\n", fatorCarga);
+    printf("Média Real (slots ocupados): %.2f itens/slot\n", media);
+    printf("PIOR CASO (Maior Lista): %u itens\n", maiorLista);
     
     printf("\n--- Distribuição (Histograma) ---\n");
-    for(int i = 0; i <= 20; i++) {
-        if(i == 20) printf("%2d+ itens: %u slots\n", i, histograma[i]);
-        else        printf("%2d  itens: %u slots\n", i, histograma[i]);
+    for(int i = 0; i <= 20; i++) 
+    {
+        if(i == 20) 
+            printf("%2d+ itens: %u slots\n", i, histograma[i]);
+        else        
+            printf("%2d  itens: %u slots\n", i, histograma[i]);
     }
     printf("===========================================\n");
 }

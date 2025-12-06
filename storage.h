@@ -5,20 +5,19 @@
 #include <stdio.h>
 #include "structs.h"
 
-// Protótipos das funções
-void inicializarStorage(const char *nomeArquivo); // Prepara o arquivo, cria índices e carrega dados existentes
-void finalizarStorage(); // Fecha arquivo, salva buffer pendente e limpaa memória RAM
-void adicionarBloco(BlocoMinerado *bloco); // Atualiza Buffer, Disco e Índices
-int buscarNonce(unsigned int nonce, BlocoMinerado *saida); // Busca por Nonce. Retorna 1 se achou, 0 se não
-void listarBlocosMinerador(unsigned char endereco); // Lista blocos de um minerador
-void relatorioTransacoes(unsigned int n); // Relatório ordenado por transações
-void exibirEstatisticas(); // Exibe estatísticas
+void inicializarStorage(const char *nomeArquivo); // Inicializa o sistema de armazenamento da blockchain
+void finalizarStorage(); // Finaliza o sistema de armazenamento
+void adicionarBloco(BlocoMinerado *bloco); // Adiciona um novo bloco minerado ao sistema
+int buscarNonce(unsigned int nonce, BlocoMinerado *saida); // Busca um bloco pelo seu nonce usando hash table
+void listarBlocosMinerador(unsigned char endereco, int n); // Lista os primeiros N blocos minerados por um endereço específico
+void relatorioTransacoes(unsigned int n); // Gera relatório de blocos ordenados por número de transações
+void exibirEstatisticas(); // Exibe estatísticas gerais do sistema
 
-// Operações de exibição
-void imprimirBloco(BlocoMinerado *bloco);
-void imprimirHash(unsigned char *hash, int tamanho);
-
-// apagar depois de testes
+/**
+ * [FUNÇÃO DE DEBUG] Analisa distribuição da hash table
+ * - Mostra colisões, fator de carga, pior caso
+ * - Útil para ajustar TAM_HASH e validar hash function
+ */
 void relatorioColisoes();
 
 #endif 
