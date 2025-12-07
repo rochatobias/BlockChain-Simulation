@@ -51,7 +51,7 @@ void imprimirBlocoDebug(unsigned char dataBlock[]) {
     
     // Se for texto (Gênesis)
     if (qtd == 0 && dataBlock[0] != 0) {
-        printf("Conteudo (Texto): %s\n", dataBlock);
+        printf("Mensagem do Bloco: %s\n", dataBlock);
     } else {
         printf("Quantidade de Transacoes: %d\n", qtd);
         for(int i=0; i < qtd; i++) {
@@ -173,3 +173,4 @@ void atualizarCarteira(unsigned int numeroDoBloco, unsigned char dataBlock[], un
     }
 
 }
+
