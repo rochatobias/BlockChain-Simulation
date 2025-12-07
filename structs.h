@@ -59,9 +59,7 @@ typedef struct NoMinerador {
  * Mantém informações agregadas calculadas durante a operação
  */
 typedef struct {
-    unsigned int saldos[256];           // Saldo de cada endereço (0-255)
-    unsigned char enderecoMaisRico;     // Endereço com maior saldo
-    unsigned int saldoMaisRico;         // Valor do maior saldo encontrado
+
     unsigned int maxTransacoes;         // Maior número de transações em um bloco
     unsigned int blocoMaxTransacoes;    // ID do bloco com mais transações
     unsigned int totalBlocos;           // Contador total de blocos no sistema
