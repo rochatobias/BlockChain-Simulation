@@ -25,7 +25,7 @@ void minerarBloco(BlocoNaoMinerado *b, unsigned char hash [SHA256_LEN]){
 
     while(1){
         calcularHash(b, hash);
-        // Verifica se os dois primeiros nibbles (primeiro byte) são 0
+        // Verificação de 00
         if (hash[0] == 0){
             break;
         }
@@ -37,14 +37,13 @@ void atualizarHashAnt(BlocoNaoMinerado *prox, unsigned char hashAnterior[SHA256_
     memcpy(prox->hashAnterior, hashAnterior, SHA256_LEN);
 }
 
-// FUNÇÃO ATUALIZADA
 BlocoMinerado criarBlocoGenesis(unsigned char dados[]){
     BlocoNaoMinerado bg;
     memset(&bg, 0, sizeof(BlocoNaoMinerado)); // zera tudo
 
     bg.numero = 1; 
 
-    // AQUI: Copia os dados recebidos (mensagem + minerador) para o bloco
+    // Colocando dados das transações
     memcpy(bg.data, dados, 184); 
 
     BlocoMinerado blocoFinal;
@@ -55,7 +54,6 @@ BlocoMinerado criarBlocoGenesis(unsigned char dados[]){
     return blocoFinal;
 }
 
-// FUNÇÃO ATUALIZADA
 BlocoMinerado criarProxBloco(BlocoMinerado ant, unsigned int num, unsigned char dados[]){
     BlocoNaoMinerado novo;
     memset(&novo, 0, sizeof(novo));
@@ -64,7 +62,7 @@ BlocoMinerado criarProxBloco(BlocoMinerado ant, unsigned int num, unsigned char 
 
     atualizarHashAnt(&novo, ant.hash);
 
-    // AQUI: Copia as transações geradas para dentro do bloco
+    // Colocando dados das transações
     memcpy(novo.data, dados, 184);
 
     BlocoMinerado final;
