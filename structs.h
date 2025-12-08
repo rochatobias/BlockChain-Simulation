@@ -65,12 +65,9 @@ typedef struct {
     unsigned int totalBlocos;           // Contador total de blocos no sistema
 } Estatisticas;
 
-/**
- * Wrapper seguro para malloc com verificação de erro
- * - Aloca memória e verifica se a alocação foi bem-sucedida
- * - Em caso de falha, exibe mensagem de erro e encerra programa
- * - 'contexto' identifica qual parte do código chamou (para debug)
- */
-void *verifica_malloc(size_t tamanho, const char *contexto);
+typedef struct RecordBlocos {
+    unsigned int idBloco;
+    struct RecordBlocos *prox;
+} RecordBlocos;
 
 #endif

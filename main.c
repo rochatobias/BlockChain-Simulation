@@ -1,144 +1,120 @@
 /*
  * main.c - Simulação de Blockchain (Projeto Final ED2)
- * Integração: Gabriel Henrique
+ * 
+ * OTIMIZAÇÃO 3 IMPLEMENTADA:
+ * - Carteira local eliminada - usa getSaldo() do storage
+ * - Fonte única de verdade para saldos
+ * - Evita duplicação de estado e inconsistências
+ * 
+ * NOTA: Mantemos uma carteira local APENAS durante geração de transações
+ * do bloco atual, pois precisamos simular múltiplas transações antes de
+ * efetivar. Após mineração, o storage é a fonte de verdade.
  */
+
+#define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "mtwister.h"
 #include "structs.h"
 #include "miner.h"
 #include "transactions.h"
 #include "storage.h"
 
+// ============================================================================
 // CONSTANTES DO PROJETO
-// O PDF pede 30.000 para ED2. Para testes rápidos, use 1000.
-#define TOTAL_BLOCOS_SIMULACAO 30000 
+// ============================================================================
+
+#define TOTAL_BLOCOS_SIMULACAO 30000   // ED2: 30.000 blocos
 #define ARQUIVO_BLOCKCHAIN "blockchain.bin"
 
-// ESTADO GLOBAL (RAM)
-// A carteira precisa ficar na RAM para validar transações rapidamente
-unsigned int carteira[256];      
-unsigned int blocosMinerados[256]; // Contador auxiliar para o relatório (b)
-MTRand r; // Gerador de números aleatórios
+// ============================================================================
+// ESTADO GLOBAL
+// ============================================================================
+
+MTRand r;  // Gerador Mersenne Twister
 
 // ============================================================================
-// FUNÇÕES AUXILIARES DA MAIN
+// FUNÇÕES AUXILIARES
 // ============================================================================
 
 void inicializarEstado() {
-    memset(carteira, 0, sizeof(carteira));
-    memset(blocosMinerados, 0, sizeof(blocosMinerados));
-    // Semente fixa exigida pelo PDF (mtwister)
+    // Semente fixa exigida pelo PDF
     r = seedRand(1234567); 
 }
 
-// Reconstrói o saldo da carteira lendo o arquivo (caso o programa seja fechado e reaberto)
-void reconstruirEstadoPeloDisco(unsigned int totalBlocosExistentes) {
-    printf("Blockchain encontrada com %u blocos.\n", totalBlocosExistentes);
-    printf("Reconstruindo saldos da carteira... aguarde.\n");
-    
-    BlocoMinerado temp;
-    
-    for (unsigned int i = 1; i <= totalBlocosExistentes; i++) {
-        // Usa a função pública que criamos no storage.h
-        if (buscarBlocoPorId(i, &temp)) { 
-            // Reaplica as transações na carteira (recompensa + transferências)
-            atualizarCarteira(temp.bloco.numero, temp.bloco.data, carteira, -1);
-            
-            // Atualiza contagem de quem minerou (posição 183 fixa)
-            unsigned char minerador = temp.bloco.data[183]; 
-            blocosMinerados[minerador]++;
-        }
-        
-        if (i % 5000 == 0) printf("Processados %u blocos...\n", i);
-    }
-    printf("Estado restaurado com sucesso!\n");
-}
-
+/**
+ * Executa a mineração de todos os blocos
+ * 
+ * OTIMIZAÇÃO 3: Não mantemos mais carteira duplicada.
+ * A função gerarDadosDoBloco usa getSaldo() do storage.
+ */
 void rodarSimulacao() {
-    printf("Iniciando mineracao de %d blocos...\n", TOTAL_BLOCOS_SIMULACAO);
+    printf("Iniciando mineração de %d blocos...\n", TOTAL_BLOCOS_SIMULACAO);
     
     BlocoMinerado anterior;
     unsigned char dadosBuffer[184];
     
     // --- BLOCO 1 (GÊNESIS) ---
-    // 1. Gera dados (Mensagem "The Times...")
-    gerarDadosDoBloco(1, dadosBuffer, carteira, &r); 
-    
-    // 2. Minera Gênesis (Passando os dados gerados!)
+    // Para o Gênesis, passamos NULL como carteira (usa storage internamente)
+    gerarDadosDoBloco(1, dadosBuffer, NULL, &r); 
     BlocoMinerado genesis = criarBlocoGenesis(dadosBuffer); 
     
-    // 3. Atualiza Carteira e Salva no Disco
-    atualizarCarteira(1, genesis.bloco.data, carteira, -1);
+    // Storage atualiza saldos automaticamente ao adicionar bloco
     adicionarBloco(&genesis);
-    
-    // 4. Atualiza estado local
-    blocosMinerados[genesis.bloco.data[183]]++;
     anterior = genesis;
 
-    printf("Bloco 1 (Genesis) minerado.\n");
+    printf("Bloco 1 (Gênesis) minerado.\n");
 
     // --- BLOCOS 2 até N ---
     for (unsigned int i = 2; i <= TOTAL_BLOCOS_SIMULACAO; i++) {
+        // OTIMIZAÇÃO 3: Passa NULL para usar getSaldo() do storage
+        gerarDadosDoBloco(i, dadosBuffer, NULL, &r);
         
-        // 1. Gera Transações válidas (baseadas no saldo atual da carteira)
-        gerarDadosDoBloco(i, dadosBuffer, carteira, &r);
-        
-        // 2. Minera o bloco (Passando os dados gerados!)
         BlocoMinerado novo = criarProxBloco(anterior, i, dadosBuffer);
         
-        // 3. Efetiva as transações na carteira (Fundamental para o próximo bloco ser válido)
-        atualizarCarteira(i, novo.bloco.data, carteira, -1);
-        
-        // 4. Grava no disco (Storage cuida do buffer de 16 em 16)
+        // Storage atualiza saldos e estatísticas automaticamente
         adicionarBloco(&novo);
         
-        // 5. Atualiza estado local e prepara para o próximo
-        blocosMinerados[novo.bloco.data[183]]++;
         anterior = novo;
 
-        // Feedback visual
         if (i % 1000 == 0) {
             printf("Bloco %u minerado... (%.1f%%)\n", i, (float)i/TOTAL_BLOCOS_SIMULACAO*100);
         }
     }
     
-    printf("Simulacao concluida!\n");
+    printf("Simulação concluída!\n");
 }
 
-// Funções para os relatórios que dependem da Carteira (RAM)
-// Os outros relatórios já estão no storage.c
+// ============================================================================
+// MENU INTERATIVO
+// ============================================================================
 
-void relatorioMaisRico() { // Item (a)
-    unsigned int maiorSaldo = 0;
-    for(int i=0; i<256; i++) {
-        if(carteira[i] > maiorSaldo) maiorSaldo = carteira[i];
-    }
-    
-    printf("\n--- Endereco(s) com mais Bitcoins (Item a) ---\n");
-    printf("Saldo Maximo: %u BTC\n", maiorSaldo);
-    printf("Endereco(s): ");
-    for(int i=0; i<256; i++) {
-        if(carteira[i] == maiorSaldo) printf("%d ", i);
-    }
-    printf("\n");
+void exibirMenu() {
+    printf("\n╔═══════════════════════════════════════════╗\n");
+    printf("║    MENU BLOCKCHAIN SIMPLIFICADA           ║\n");
+    printf("╠═══════════════════════════════════════════╣\n");
+    printf("║ 1. [a] Endereço com mais Bitcoins         ║\n");
+    printf("║ 2. [b] Endereço que minerou mais blocos   ║\n");
+    printf("║ 3. [c] Bloco com MAIS transações          ║\n");
+    printf("║ 4. [d] Bloco com MENOS transações         ║\n");
+    printf("║ 5. [e] Média de Bitcoins por bloco        ║\n");
+    printf("║ 6. [f] Imprimir bloco por número          ║\n");
+    printf("║ 7. [g] Imprimir N blocos de um minerador  ║\n");
+    printf("║ 8. [h] Imprimir N blocos (Ord. por tx)    ║\n");
+    printf("║ 9. [i] Buscar blocos por Nonce            ║\n");
+    printf("║ 10. Gerar Histograma Hash                 ║\n");
+    printf("║ 0. Sair                                   ║\n");
+    printf("╚═══════════════════════════════════════════╝\n");
+    printf("Escolha: ");
 }
 
-void relatorioMaiorMinerador() { // Item (b)
-    unsigned int maiorQtd = 0;
-    for(int i=0; i<256; i++) {
-        if(blocosMinerados[i] > maiorQtd) maiorQtd = blocosMinerados[i];
-    }
-    
-    printf("\n--- Endereco(s) que mais minerou (Item b) ---\n");
-    printf("Qtd Blocos: %u\n", maiorQtd);
-    printf("Minerador(es): ");
-    for(int i=0; i<256; i++) {
-        if(blocosMinerados[i] == maiorQtd) printf("%d ", i);
-    }
-    printf("\n");
+/* --- Adicionado: utilitário para calcular tempo em ms --- */
+static double tempo_ms(struct timespec inicio, struct timespec fim) {
+	// Retorna milissegundos com precisão sub-mili
+	return (fim.tv_sec - inicio.tv_sec) * 1000.0 + (fim.tv_nsec - inicio.tv_nsec) / 1e6;
 }
 
 // ============================================================================
@@ -150,44 +126,30 @@ int main() {
     inicializarEstado();
     inicializarStorage(ARQUIVO_BLOCKCHAIN);
     
-    // 2. Verificação de Persistência (ED2)
+    // 2. Verificação de Persistência
     unsigned int totalBlocosDisco = obterTotalBlocos();
     
     if (totalBlocosDisco < TOTAL_BLOCOS_SIMULACAO) {
         if (totalBlocosDisco > 0) {
-            printf("AVISO: Blockchain incompleta (%u/%d). Reiniciando do zero para consistencia.\n", 
+            printf("AVISO: Blockchain incompleta (%u/%d). Reiniciando para consistência.\n", 
                    totalBlocosDisco, TOTAL_BLOCOS_SIMULACAO);
-            // Fecha e reabre truncando o arquivo (apaga tudo)
             finalizarStorage();
             remove(ARQUIVO_BLOCKCHAIN);
             inicializarStorage(ARQUIVO_BLOCKCHAIN);
         }
         rodarSimulacao();
     } else {
-        // Se já tem tudo minerado, apenas reconstrói a memória
-        reconstruirEstadoPeloDisco(totalBlocosDisco);
+        // Storage já reconstruiu tudo ao inicializar
+        printf("Blockchain completa carregada: %u blocos.\n", totalBlocosDisco);
     }
 
     // 3. Menu Interativo
     int opcao;
     do {
-        printf("\n============================================\n");
-        printf("       MENU BLOCKCHAIN SIMPLIFICADA\n");
-        printf("============================================\n");
-        printf("1. [a] Endereco com mais Bitcoins\n");
-        printf("2. [b] Endereco que minerou mais blocos\n");
-        printf("3. [c] Bloco com MAIS transacoes\n");
-        printf("4. [d] Bloco com MENOS transacoes\n");
-        printf("5. [e] Media de Bitcoins por bloco\n");
-        printf("6. [f] Imprimir bloco por numero\n");
-        printf("7. [g] Imprimir N primeiros blocos de um minerador\n");
-        printf("8. [h] Imprimir N blocos (Ord. por transacoes)\n");
-        printf("9. [i] Buscar blocos por Nonce\n");
-        printf("0. Sair\n");
-        printf("Escolha: ");
+        exibirMenu();
+        
         if (scanf("%d", &opcao) != 1) {
-            // Limpa buffer em caso de letra digitada para evitar loop infinito
-            while(getchar() != '\n'); 
+            while(getchar() != '\n');
             opcao = -1;
         }
 
@@ -195,39 +157,93 @@ int main() {
         int n;
         unsigned char end;
 
+        // Variáveis de medição de tempo por opção
+        struct timespec t_start, t_end;
+        double t_elapsed;
+
         switch(opcao) {
-            case 1: relatorioMaisRico(); break;
-            case 2: relatorioMaiorMinerador(); break;
-            case 3: relatorioMaxTransacoes(); break;       // Chama do storage.c
-            case 4: relatorioMinTransacoes(); break;       // Chama do storage.c
-            case 5: calcularMediaBitcoinsPorBloco(); break; // Chama do storage.c
-            case 6: 
-                printf("Digite o numero do bloco: ");
+            case 1:
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                relatorioMaisRico();
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                t_elapsed = tempo_ms(t_start, t_end);
+                printf("Tempo de execução: %.3f ms\n", t_elapsed);
+                break;
+            case 2:
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                relatorioMaiorMinerador();
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
+                break;
+            case 3:
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                relatorioMaxTransacoes();
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
+                break;
+            case 4:
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                relatorioMinTransacoes();
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
+                break;
+            case 5:
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                calcularMediaBitcoinsPorBloco();
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
+                break;
+            case 6:
+                printf("Digite o número do bloco: ");
                 scanf("%u", &num);
-                imprimirBlocoPorNumero(num); 
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                imprimirBlocoPorNumero(num);
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
                 break;
             case 7:
-                printf("Endereco do minerador (0-255): ");
+                printf("Endereço do minerador (0-255): ");
                 scanf("%hhu", &end);
                 printf("Quantidade de blocos (N): ");
                 scanf("%d", &n);
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
                 listarBlocosMinerador(end, n);
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
                 break;
             case 8:
                 printf("Quantidade de blocos para analisar (N): ");
                 scanf("%u", &num);
-                relatorioTransacoes(num); 
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                relatorioTransacoes(num);
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
                 break;
             case 9:
                 printf("Digite o Nonce: ");
                 scanf("%u", &nonce);
-                listarBlocosPorNonce(nonce); 
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                listarBlocosPorNonce(nonce);
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
                 break;
+            case 10:
+                 clock_gettime(CLOCK_MONOTONIC, &t_start);
+                 exibirHistogramaHash();
+                 clock_gettime(CLOCK_MONOTONIC, &t_end);
+                 printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
+                 break;
             case 0:
-                printf("Finalizando sistema e salvando indices...\n");
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                printf("Finalizando sistema...\n");
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
                 break;
             default:
-                printf("Opcao invalida!\n");
+                clock_gettime(CLOCK_MONOTONIC, &t_start);
+                printf("Opção inválida!\n");
+                clock_gettime(CLOCK_MONOTONIC, &t_end);
+                printf("Tempo de execução: %.3f ms\n", tempo_ms(t_start, t_end));
         }
     } while(opcao != 0);
 
