@@ -401,6 +401,70 @@ static void resetarIndices() {
     contadorBuffer = 0;
 }
 
+void exportarParaTexto(const char* nomeArquivoTxt) {
+    printf("Gerando arquivo de texto (%s)... ", nomeArquivoTxt);
+    
+    FILE *arqBin = fopen("blockchain.bin", "rb"); // Abre o binário atual
+    if (!arqBin) {
+        printf("Erro ao abrir binário para exportação.\n");
+        return;
+    }
+
+    FILE *arqTxt = fopen(nomeArquivoTxt, "w");
+    if (!arqTxt) {
+        printf("Erro ao criar arquivo de texto.\n");
+        fclose(arqBin);
+        return;
+    }
+
+    // Buffer para ler vários blocos de uma vez (ex: 100 por vez)
+    // Isso é MUITO mais rápido que ler 1 por 1
+    const int TAM_LOTE = 100;
+    BlocoMinerado bufferLote[TAM_LOTE];
+    size_t lidos;
+
+    fprintf(arqTxt, "=== RELATÓRIO DA BLOCKCHAIN ===\n");
+    fprintf(arqTxt, "Total de Blocos: %u\n\n", stats.totalBlocos);
+
+    while ((lidos = fread(bufferLote, sizeof(BlocoMinerado), TAM_LOTE, arqBin)) > 0) {
+        for (size_t i = 0; i < lidos; i++) {
+            BlocoMinerado *b = &bufferLote[i];
+            
+            fprintf(arqTxt, "--------------------------------------------------\n");
+            fprintf(arqTxt, "BLOCO %u\n", b->bloco.numero);
+            fprintf(arqTxt, "Nonce: %u\n", b->bloco.nonce);
+            fprintf(arqTxt, "Minerador: %u\n", b->bloco.data[183]); // Posição fixa 183
+            
+            fprintf(arqTxt, "Hash: ");
+            for(int k=0; k<32; k++) fprintf(arqTxt, "%02x", b->hash[k]);
+            fprintf(arqTxt, "\n");
+
+            // Imprimir transações (Opcional, mas pedido no PDF)
+            // Se for o Gênesis
+            if (b->bloco.numero == 1) {
+                fprintf(arqTxt, "Dados: %s\n", b->bloco.data);
+            } else {
+                fprintf(arqTxt, "Transações:\n");
+                for (int k = 0; k < 183; k += 3) {
+                    unsigned char origem = b->bloco.data[k];
+                    unsigned char destino = b->bloco.data[k+1];
+                    unsigned char valor = b->bloco.data[k+2];
+                    
+                    if (valor > 0) {
+                        fprintf(arqTxt, "   %d -> %d (%d BTC)\n", origem, destino, valor);
+                    } else if (origem == 0 && destino == 0) {
+                        break; // Fim das transações
+                    }
+                }
+            }
+        }
+    }
+
+    fclose(arqTxt);
+    fclose(arqBin);
+    printf("Concluído!\n");
+}
+
 static void imprimirListaRecordes(NoRecorde *lista, const char *titulo, int valor) {
     printf("\n--- %s (%d tx) ---\n", titulo, valor); // Título dinâmico
     
@@ -472,7 +536,17 @@ void adicionarBloco(BlocoMinerado *bloco) {
 
 void finalizarStorage() {
     flushBuffer();
-    if (arquivoAtual) fclose(arquivoAtual);
+
+    // Fecha o arquivo binário ANTES de exportar para texto
+    // Isso evita conflito de acesso ao arquivo (fopen falha se já aberto)
+    if (arquivoAtual) {
+        fclose(arquivoAtual);
+        arquivoAtual = NULL;
+    }
+
+    // Agora exporta (abre o binário novamente para leitura)
+    exportarParaTexto("blockchain.txt");
+    
     resetarIndices();
 }
 
