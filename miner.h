@@ -9,8 +9,6 @@
 void calcularHash(BlocoNaoMinerado *b, unsigned char hash[SHA256_LEN]);
 void minerarBloco(BlocoNaoMinerado *b, unsigned char hash [SHA256_LEN]);
 void atualizarHashAnt(BlocoNaoMinerado *prox, unsigned char hashAnterior[SHA256_LEN]);
-
-// PROTÓTIPOS ATUALIZADOS PARA RECEBER DADOS:
 BlocoMinerado criarBlocoGenesis(unsigned char dados[]);
 BlocoMinerado criarProxBloco(BlocoMinerado ant, unsigned int num, unsigned char dados[]);
 

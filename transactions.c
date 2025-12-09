@@ -1,15 +1,3 @@
-/*
- * 
- * OTIMIZAÇÃO 1: Lista de candidatos mantida incrementalmente
- * - Em vez de percorrer todos os 256 endereços a cada transação,
- *   mantemos uma lista atualizada de quem tem saldo > 0
- * - Reduz de O(256×N) para O(N) onde N = número de transações
- * 
- * OTIMIZAÇÃO 3: Usa getSaldo() do storage em vez de carteira local
- * - Elimina duplicação de estado entre main.c e storage.c
- * - Fonte única de verdade para saldos
- */
-
 #include <stdio.h>
 #include <string.h> 
 #include "mtwister.h"
@@ -19,67 +7,16 @@
 
 #define TOTAL_ENDERECOS 256
 #define TAMANHO_DATA 184
-#define RECOMPENSA_MINERACAO 50
 #define MAX_TRANSACOES 61
 #define POSICAO_MINERADOR 183 
 
-// 
-// FUNÇÕES AUXILIARES
-// 
-
-/**
- * Conta transações válidas em um bloco.
- * Uma transação é válida se valor > 0.
- * Termina quando encontra sequência de zeros.
- */
-int contarTransacoesNoBloco(unsigned char dataBlock[]) {
-    int count = 0;
-    
-    for (int i = 0; i < POSICAO_MINERADOR; i += 3) {
-        unsigned char valor = dataBlock[i + 2];
-        
-        if (valor > 0) {
-            count++;
-        } else {
-            // Verifica se é fim real
-            unsigned char origem = dataBlock[i];
-            unsigned char destino = dataBlock[i + 1];
-            if (origem == 0 && destino == 0) break;
-        }
-    }
-    return count;
-}
-
-/**
- * Função de DEBUG para imprimir conteúdo de um bloco.
- */
-void imprimirBlocoDebug(unsigned char dataBlock[]) {
-    int qtd = contarTransacoesNoBloco(dataBlock);
-    printf("\n--- DEBUG DO BLOCO ---\n");
-    printf("Minerador (pos %d): %d\n", POSICAO_MINERADOR, dataBlock[POSICAO_MINERADOR]);
-    
-    if (qtd == 0 && dataBlock[0] != 0) {
-        printf("Mensagem do Bloco: %s\n", dataBlock);
-    } else {
-        printf("Quantidade de Transações: %d\n", qtd);
-        for(int i = 0; i < qtd; i++) {
-            int idx = i * 3;
-            printf("  [%02d] Origem: %3d | Destino: %3d | Valor: %3d\n", 
-                   i+1, dataBlock[idx], dataBlock[idx+1], dataBlock[idx+2]);
-        }
-    }
-    printf("----------------------\n");
-}
-
-// 
-// GERAÇÃO DE DADOS DO BLOCO (OTIMIZADO)
-// 
+// GERAÇÃO DE DADOS DO BLOCO 
 
 /**
  * Gera dados do bloco: minerador + transações aleatórias
  */
-int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[], 
-                       unsigned int carteiraOrigem[], MTRand *r) {
+int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[], unsigned int carteiraOrigem[], MTRand *r) 
+{
     
     // Limpa vetor de dados
     memset(dataBlock, 0, TAMANHO_DATA);
@@ -88,7 +25,8 @@ int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[],
     unsigned char minerador = (unsigned char)(genRandLong(r) % 256);
     dataBlock[POSICAO_MINERADOR] = minerador;
 
-    if (numeroDoBloco == 1) {
+    if (numeroDoBloco == 1) 
+    {
         const char *fraseGenesis = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks";
         strcpy((char*)dataBlock, fraseGenesis);
         dataBlock[POSICAO_MINERADOR] = minerador; 
@@ -99,12 +37,12 @@ int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[],
     unsigned int saldoTemp[TOTAL_ENDERECOS];
     
 
-    if (carteiraOrigem != NULL) {
+    if (carteiraOrigem != NULL) 
         memcpy(saldoTemp, carteiraOrigem, sizeof(unsigned int) * TOTAL_ENDERECOS);
-    } else {
-        for (int i = 0; i < TOTAL_ENDERECOS; i++) {
+    else 
+    {
+        for (int i = 0; i < TOTAL_ENDERECOS; i++) 
             saldoTemp[i] = getSaldo((unsigned char)i);
-        }
     }
 
     // Lista de candidatos: endereços com saldo > 0
@@ -163,46 +101,4 @@ int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[],
     }
     
     return transacoesValidas;
-}
-
-// 
-// ATUALIZAÇÃO DA CARTEIRA (PÓS-MINERAÇÃO)
-// 
-
-/**
- * Aplica as transações do bloco na carteira oficial.
- * Chamado após mineração bem-sucedida.
- */
-void atualizarCarteira(unsigned int numeroDoBloco, unsigned char dataBlock[], 
-                        unsigned int carteiraOficial[], int qtdTransacoes) {
-    
-    // 1. Recompensa do Minerador (+50 BTC)
-    unsigned char minerador = dataBlock[POSICAO_MINERADOR];
-    carteiraOficial[minerador] += RECOMPENSA_MINERACAO;
-
-    // Gênesis não tem transações
-    if (numeroDoBloco == 1) return;
-
-    // Se não sabemos a quantidade, contamos
-    if (qtdTransacoes == -1) {
-        qtdTransacoes = contarTransacoesNoBloco(dataBlock);
-    }
-
-    // 2. Efetiva as transações
-    int index = 0;
-    for (int i = 0; i < qtdTransacoes; i++) {
-        unsigned char origem = dataBlock[index];
-        unsigned char destino = dataBlock[index + 1];
-        unsigned char valor = dataBlock[index + 2];
-        
-        if (carteiraOficial[origem] >= valor) {
-            carteiraOficial[origem] -= valor;
-            carteiraOficial[destino] += valor;
-        } else {
-            printf("[ERRO] Bloco %u: Origem %d tem %u, tentou gastar %d.\n", 
-                   numeroDoBloco, origem, carteiraOficial[origem], valor);
-        }
-        
-        index += 3;
-    }
 }

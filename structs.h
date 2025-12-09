@@ -12,9 +12,9 @@
  * Representa os dados que serão hasheados durante a mineração
  */
 typedef struct {
-    unsigned int numero;                           // Número sequencial do bloco (1, 2, 3...)
-    unsigned int nonce;                            // Número usado para variar o hash na mineração
-    unsigned char data[DATA_SIZE];                 // 184 bytes: 183 bytes de transações + 1 byte (minerador)
+    unsigned int numero; // Número sequencial do bloco 
+    unsigned int nonce; // Número usado para variar o hash na mineração
+    unsigned char data[DATA_SIZE]; // 184 bytes: 183 bytes de transações + 1 byte (minerador)
     unsigned char hashAnterior[SHA256_LEN]; // Hash do bloco anterior (encadeamento)
 } BlocoNaoMinerado;
 
@@ -23,17 +23,17 @@ typedef struct {
  * Inclui o hash calculado que satisfez a dificuldade
  */
 typedef struct {
-    unsigned char hash[SHA256_LEN];      // Hash SHA-256 resultante da mineração
-    BlocoNaoMinerado bloco;                        // Dados do bloco que foram hasheados
+    unsigned char hash[SHA256_LEN]; // Hash SHA-256 resultante da mineração
+    BlocoNaoMinerado bloco; // Dados do bloco que foram hasheados
 } BlocoMinerado;
 
 /**
  * Nó da Hash Table para índice de Nonces
  * 
- * Estrutura de dados: Hash Table com encadeamento (chaining)
+ * Estrutura de dados: Hash Table com encadeamento 
  * - Cada slot da tabela aponta para uma lista encadeada de nós
  * - Permite busca rápida O(1) em média de blocos pelo nonce
- * - 'prox' aponta para o próximo nó na mesma lista (colisões)
+ * - 'prox' aponta para o próximo nó na mesma lista 
  */
 typedef struct NoHash {
     unsigned int nonce;           // Nonce usado na mineração do bloco
@@ -46,7 +46,7 @@ typedef struct NoHash {
  * 
  * Estrutura de dados: Array de 256 listas encadeadas
  * - Cada endereço (0-255) tem sua própria lista de blocos
- * - Inserção sempre no FIM da lista (ordem cronológica preservada)
+ * - Inserção sempre no FIM da lista
  * - 'prox' aponta para o próximo bloco minerado pelo mesmo endereço
  */
 typedef struct NoMinerador {
@@ -54,20 +54,13 @@ typedef struct NoMinerador {
     struct NoMinerador *prox;     // Próximo bloco do mesmo minerador
 } NoMinerador;
 
-/**
- * Estrutura de Estatísticas do Sistema
- * Mantém informações agregadas calculadas durante a operação
- */
 typedef struct {
-
-    unsigned int maxTransacoes;         // Maior número de transações em um bloco
-    unsigned int blocoMaxTransacoes;    // ID do bloco com mais transações
     unsigned int totalBlocos;           // Contador total de blocos no sistema
 } Estatisticas;
 
 typedef struct RecordBlocos {
     unsigned int idBloco;
-    struct RecordBlocos *prox;
-} RecordBlocos;
+    struct RecordBlocos *prox;          // Ponteiro para próximo nó (lista encadeada)
+} NoRecorde;
 
 #endif
