@@ -93,22 +93,22 @@ void rodarSimulacao() {
 // ============================================================================
 
 void exibirMenu() {
-    printf("\n╔═══════════════════════════════════════════╗\n");
-    printf("║    MENU BLOCKCHAIN SIMPLIFICADA           ║\n");
-    printf("╠═══════════════════════════════════════════╣\n");
-    printf("║ 1. [a] Endereço com mais Bitcoins         ║\n");
-    printf("║ 2. [b] Endereço que minerou mais blocos   ║\n");
-    printf("║ 3. [c] Bloco com MAIS transações          ║\n");
-    printf("║ 4. [d] Bloco com MENOS transações         ║\n");
-    printf("║ 5. [e] Média de Bitcoins por bloco        ║\n");
-    printf("║ 6. [f] Imprimir bloco por número          ║\n");
-    printf("║ 7. [g] Imprimir N blocos de um minerador  ║\n");
-    printf("║ 8. [h] Imprimir N blocos (Ord. por tx)    ║\n");
-    printf("║ 9. [i] Buscar blocos por Nonce            ║\n");
-    printf("║ 10. Gerar Histograma Hash                 ║\n");
-    printf("║ 0. Sair                                   ║\n");
-    printf("╚═══════════════════════════════════════════╝\n");
-    printf("Escolha: ");
+    printf("\n=========================================\n");
+    printf("   MENU - BLOCKCHAIN SIMPLIFICADA\n");
+    printf("=========================================\n");
+    printf("1. [a] Endereço com mais Bitcoins\n");
+    printf("2. [b] Endereço que minerou mais blocos\n");
+    printf("3. [c] Bloco com MAIS transações\n");
+    printf("4. [d] Bloco com MENOS transações\n");
+    printf("5. [e] Média de Bitcoins por bloco\n");
+    printf("6. [f] Imprimir bloco por número\n");
+    printf("7. [g] Imprimir N blocos de um minerador\n");
+    printf("8. [h] Imprimir N blocos (ordenados por transações)\n");
+    printf("9. [i] Buscar blocos por Nonce\n");
+    printf("10. Gerar Histograma Hash\n");
+    printf("0. Sair\n");
+    printf("-----------------------------------------\n");
+    printf("Escolha uma opção: ");
 }
 
 /* --- Adicionado: utilitário para calcular tempo em ms --- */
@@ -117,9 +117,7 @@ static double tempo_ms(struct timespec inicio, struct timespec fim) {
 	return (fim.tv_sec - inicio.tv_sec) * 1000.0 + (fim.tv_nsec - inicio.tv_nsec) / 1e6;
 }
 
-// ============================================================================
 // MAIN
-// ============================================================================
 
 int main() {
     // 1. Configuração Inicial

@@ -1,5 +1,4 @@
 /*
- * transactions.c - Geração e Atualização de Transações
  * 
  * OTIMIZAÇÃO 1: Lista de candidatos mantida incrementalmente
  * - Em vez de percorrer todos os 256 endereços a cada transação,
@@ -24,9 +23,9 @@
 #define MAX_TRANSACOES 61
 #define POSICAO_MINERADOR 183 
 
-// ============================================================================
+// 
 // FUNÇÕES AUXILIARES
-// ============================================================================
+// 
 
 /**
  * Conta transações válidas em um bloco.
@@ -42,7 +41,7 @@ int contarTransacoesNoBloco(unsigned char dataBlock[]) {
         if (valor > 0) {
             count++;
         } else {
-            // Verifica se é fim real (origem e destino também são 0)
+            // Verifica se é fim real
             unsigned char origem = dataBlock[i];
             unsigned char destino = dataBlock[i + 1];
             if (origem == 0 && destino == 0) break;
@@ -72,22 +71,12 @@ void imprimirBlocoDebug(unsigned char dataBlock[]) {
     printf("----------------------\n");
 }
 
-// ============================================================================
+// 
 // GERAÇÃO DE DADOS DO BLOCO (OTIMIZADO)
-// ============================================================================
+// 
 
 /**
  * Gera dados do bloco: minerador + transações aleatórias
- * 
- * OTIMIZAÇÃO 1 IMPLEMENTADA:
- * - Mantém lista de candidatos que é atualizada incrementalmente
- * - Antes: Para cada transação, varria 256 endereços → O(61 × 256) = O(15.616)
- * - Depois: Inicializa lista uma vez, atualiza conforme necessário → O(256 + 61) = O(317)
- * - Ganho: ~49x menos iterações por bloco
- * 
- * OTIMIZAÇÃO 3 IMPLEMENTADA:
- * - Usa getSaldo() do storage para obter saldos reais
- * - Elimina necessidade de manter cópia da carteira em main.c
  */
 int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[], 
                        unsigned int carteiraOrigem[], MTRand *r) {
@@ -99,7 +88,6 @@ int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[],
     unsigned char minerador = (unsigned char)(genRandLong(r) % 256);
     dataBlock[POSICAO_MINERADOR] = minerador;
 
-    // Bloco Gênesis: apenas mensagem + minerador
     if (numeroDoBloco == 1) {
         const char *fraseGenesis = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks";
         strcpy((char*)dataBlock, fraseGenesis);
@@ -107,12 +95,10 @@ int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[],
         return 0;
     }
 
-    // --- OTIMIZAÇÃO 1: Inicialização única da lista de candidatos ---
-    // Cria cópia local dos saldos para simulação das transações
+    
     unsigned int saldoTemp[TOTAL_ENDERECOS];
     
-    // OTIMIZAÇÃO 3: Obtém saldos do storage (fonte única de verdade)
-    // Se carteiraOrigem for NULL, usa storage; senão usa a passada
+
     if (carteiraOrigem != NULL) {
         memcpy(saldoTemp, carteiraOrigem, sizeof(unsigned int) * TOTAL_ENDERECOS);
     } else {
@@ -166,26 +152,22 @@ int gerarDadosDoBloco(unsigned int numeroDoBloco, unsigned char dataBlock[],
         saldoTemp[origem] -= valor;
         saldoTemp[destino] += valor;
 
-        // OTIMIZAÇÃO 1: Atualiza lista de candidatos incrementalmente
-        // Se origem ficou sem saldo, remove da lista
+
         if (saldoTemp[origem] == 0) {
-            // Remove trocando com o último elemento (O(1))
             candidatos[indiceSorteado] = candidatos[totalCandidatos - 1];
             totalCandidatos--;
         }
         
         // Se destino não estava na lista e agora tem saldo, adiciona
         // (Apenas se valor > 0 e destino era 0 antes)
-        // Nota: Como simplificação, não adicionamos novos candidatos mid-loop
-        // pois o destino só poderá ser origem em blocos futuros
     }
     
     return transacoesValidas;
 }
 
-// ============================================================================
+// 
 // ATUALIZAÇÃO DA CARTEIRA (PÓS-MINERAÇÃO)
-// ============================================================================
+// 
 
 /**
  * Aplica as transações do bloco na carteira oficial.
