@@ -13,7 +13,7 @@
 // Signal handler para Ctrl+C
 static void handleSigint(int sig) {
     (void)sig;  // Suprimir warning
-    printf("\n\nInterrupção detectada (Ctrl+C). Salvando dados...\n");
+    printf("\n\nInterrupção detectada. Salvando dados...\n");
     finalizarStorage();
     exit(0);
 }
