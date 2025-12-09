@@ -141,7 +141,7 @@ Durante os testes, identificamos que iniciar o nonce em 0 causava alta concentra
 
 Projeto Final desenvolvido para a disciplina de **Estruturas de Dados 2**, Universidade Tecnológica Federal do Paraná (UTFPR - Campus Ponta Grossa).
 
-- **Tobias Rocha** - [GitHub](https://github.com/tobiasrocha)
+- **Tobias Rocha** - [GitHub]([https://github.com/tobiasrocha](https://github.com/rochatobias))
 - **Gabriel Henrique Roldão de Souza** - [GitHub](https://github.com/gabrielhenrique-c)
 - **Gabriel De Donno Laurindo** - [GitHub](https://github.com/NeruNeru367)
 
